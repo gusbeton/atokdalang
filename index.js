@@ -23,7 +23,7 @@ const path = require("path");
 // =======================
 const prefix = "!";
 const color = 0x2b2d31;
-const LOG_CHANNEL_ID = "ISI_CHANNEL_LOG_LU";
+const LOG_CHANNEL_ID = "1494239484366028891";
 
 // =======================
 // 📁 FILE DATABASE VC
