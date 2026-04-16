@@ -23,7 +23,7 @@ const path = require("path");
 // =======================
 const prefix = "!";
 const color = 0x2b2d31;
-const LOG_CHANNEL_ID = "1494239484366028891";
+const LOG_CHANNEL_ID = "1494239484366028891"; // ganti kalau mau
 
 // =======================
 // 📁 FILE DATABASE VC
@@ -288,8 +288,9 @@ client.on("messageCreate", async (message) => {
 });
 
 // =======================
-// 📊 AUDIT LOG SYSTEM
+// 🔥 ADVANCED AUDIT LOG
 // =======================
+
 function logEmbed(title, desc, color, user) {
   return new EmbedBuilder()
     .setColor(color)
@@ -304,58 +305,72 @@ function getLog(guild) {
   return guild.channels.cache.get(LOG_CHANNEL_ID);
 }
 
-client.on("guildMemberAdd", m => {
+client.on("guildMemberAdd", (m) => {
   const ch = getLog(m.guild); if (!ch) return;
-  ch.send({ embeds: [logEmbed("🟢 JOIN", `${m.user.tag} masuk server`, "Green", m.user)] });
+  ch.send({ embeds: [logEmbed("🟢 JOIN",
+    `👮 Self\n🎯 ${m.user.tag}\n📌 Join`,
+    "Green", m.user)] });
 });
 
-client.on("guildMemberRemove", async m => {
+client.on("guildMemberRemove", async (m) => {
   const ch = getLog(m.guild); if (!ch) return;
 
-  let text = "keluar server";
+  let executor = "Self";
+  let action = "Leave";
 
   try {
     const logs = await m.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberKick });
     const log = logs.entries.first();
-    if (log && log.target.id === m.id) text = `di kick oleh ${log.executor.tag}`;
+    if (log && log.target.id === m.id) {
+      executor = log.executor.tag;
+      action = "Kick";
+    }
   } catch {}
 
-  ch.send({ embeds: [logEmbed("🔴 LEAVE", `${m.user.tag} ${text}`, "Red", m.user)] });
+  ch.send({ embeds: [logEmbed("🔴 LEAVE",
+    `👮 ${executor}\n🎯 ${m.user.tag}\n📌 ${action}`,
+    "Red", m.user)] });
 });
 
-client.on("messageDelete", m => {
-  if (!m.guild || m.author?.bot) return;
+client.on("messageDelete", async (m) => {
+  if (!m.guild) return;
   const ch = getLog(m.guild); if (!ch) return;
 
-  ch.send({ embeds: [logEmbed("🗑 DELETE", `${m.author.tag}\n${m.content || "-"}`, "DarkRed", m.author)] });
+  let executor = m.author?.tag || "Unknown";
+
+  try {
+    const logs = await m.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MessageDelete });
+    const log = logs.entries.first();
+    if (log && log.target.id === m.author?.id) executor = log.executor.tag;
+  } catch {}
+
+  ch.send({ embeds: [logEmbed("🗑 DELETE",
+    `👮 ${executor}\n🎯 ${m.author?.tag}\n💬 ${m.content || "-"}`,
+    "DarkRed", m.author)] });
 });
 
-client.on("messageUpdate", (o, n) => {
-  if (!o.guild || o.author?.bot) return;
-  if (o.content === n.content) return;
-
-  const ch = getLog(o.guild); if (!ch) return;
-
-  ch.send({
-    embeds: [logEmbed("✏️ EDIT",
-      `User: ${o.author.tag}\nBefore: ${o.content || "-"}\nAfter: ${n.content || "-"}`,
-      "Yellow", o.author)]
-  });
-});
-
-client.on("voiceStateUpdate", (o, n) => {
+client.on("voiceStateUpdate", async (o, n) => {
   const ch = getLog(n.guild); if (!ch) return;
 
-  let txt;
-  if (!o.channel && n.channel) txt = `join ${n.channel}`;
-  else if (o.channel && !n.channel) txt = `leave ${o.channel}`;
-  else if (o.channelId !== n.channelId) txt = `move ${o.channel} ➜ ${n.channel}`;
-  else return;
+  let action, executor = "Self";
 
-  ch.send({ embeds: [logEmbed("🔊 VOICE", `${n.member.user.tag} ${txt}`, "Blue", n.member.user)] });
+  if (!o.channel && n.channel) action = `Join ${n.channel}`;
+  else if (o.channel && !n.channel) action = `Leave ${o.channel}`;
+  else if (o.channelId !== n.channelId) {
+    action = `Move ${o.channel} ➜ ${n.channel}`;
+    try {
+      const logs = await n.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberMove });
+      const log = logs.entries.first();
+      if (log && log.target.id === n.id) executor = log.executor.tag;
+    } catch {}
+  } else return;
+
+  ch.send({ embeds: [logEmbed("🔊 VOICE",
+    `👮 ${executor}\n🎯 ${n.member.user.tag}\n📌 ${action}`,
+    "Blue", n.member.user)] });
 });
 
-client.on("guildMemberUpdate", (o, n) => {
+client.on("guildMemberUpdate", async (o, n) => {
   const ch = getLog(n.guild); if (!ch) return;
 
   const add = n.roles.cache.filter(r => !o.roles.cache.has(r.id));
@@ -363,35 +378,41 @@ client.on("guildMemberUpdate", (o, n) => {
 
   if (!add.size && !rem.size) return;
 
-  ch.send({
-    embeds: [logEmbed("🎭 ROLE",
-      `${n.user.tag}\n+ ${add.map(r => r.name).join(", ") || "-"}\n- ${rem.map(r => r.name).join(", ") || "-"}`,
-      "Purple", n.user)]
-  });
+  let executor = "Unknown";
+
+  try {
+    const logs = await n.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberRoleUpdate });
+    const log = logs.entries.first();
+    if (log && log.target.id === n.id) executor = log.executor.tag;
+  } catch {}
+
+  ch.send({ embeds: [logEmbed("🎭 ROLE",
+    `👮 ${executor}\n🎯 ${n.user.tag}\n+ ${add.map(r => r.name).join(", ") || "-"}\n- ${rem.map(r => r.name).join(", ") || "-"}`,
+    "Purple", n.user)] });
 });
 
-client.on("guildBanAdd", async b => {
+client.on("guildBanAdd", async (b) => {
   const ch = getLog(b.guild); if (!ch) return;
 
-  let exec = "Unknown";
+  let executor = "Unknown";
 
   try {
     const logs = await b.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberBanAdd });
     const log = logs.entries.first();
-    if (log) exec = log.executor.tag;
+    if (log) executor = log.executor.tag;
   } catch {}
 
-  ch.send({ embeds: [logEmbed("🔨 BAN", `${b.user.tag} oleh ${exec}`, "Red", b.user)] });
+  ch.send({ embeds: [logEmbed("🔨 BAN",
+    `👮 ${executor}\n🎯 ${b.user.tag}`,
+    "Red", b.user)] });
 });
 
-client.on("inviteCreate", i => {
+client.on("inviteCreate", (i) => {
   const ch = getLog(i.guild); if (!ch) return;
 
-  ch.send({
-    embeds: [logEmbed("🔗 INVITE",
-      `${i.inviter.tag}\n${i.channel}\nhttps://discord.gg/${i.code}`,
-      "Aqua", i.inviter)]
-  });
+  ch.send({ embeds: [logEmbed("🔗 INVITE",
+    `👮 ${i.inviter.tag}\n📍 ${i.channel}\nCode: ${i.code}`,
+    "Aqua", i.inviter)] });
 });
 
 // =======================
