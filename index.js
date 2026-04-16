@@ -4,8 +4,7 @@ const {
   Client,
   GatewayIntentBits,
   PermissionsBitField,
-  EmbedBuilder,
-  AuditLogEvent
+  EmbedBuilder
 } = require("discord.js");
 
 const {
@@ -23,7 +22,6 @@ const path = require("path");
 // =======================
 const prefix = "!";
 const color = 0x2b2d31;
-const LOG_CHANNEL_ID = "1494239484366028891"; // ganti kalau mau
 
 // =======================
 // 📁 FILE DATABASE VC
@@ -50,22 +48,24 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildModeration
+    GatewayIntentBits.MessageContent
   ]
 });
 
 // =======================
-// 🔊 JOIN VC
+// 🔊 JOIN VC (FINAL FIX)
 // =======================
 async function joinVC(guild, channelId) {
   try {
     const channel = await guild.channels.fetch(channelId);
-    if (!channel) return;
+
+    if (!channel) return console.log("❌ Channel tidak ditemukan");
 
     const existing = getVoiceConnection(guild.id);
-    if (existing) return;
+    if (existing) {
+      console.log("⚠️ Sudah connect ke VC");
+      return;
+    }
 
     const connection = joinVoiceChannel({
       channelId: channel.id,
@@ -74,21 +74,28 @@ async function joinVC(guild, channelId) {
       selfDeaf: false
     });
 
+    console.log(`🔄 Mencoba join VC: ${channel.id}`);
+
     connection.on("stateChange", (oldState, newState) => {
+      console.log(`STATE: ${oldState.status} -> ${newState.status}`);
+
       if (newState.status === VoiceConnectionStatus.Disconnected) {
+        console.log("⚠️ Terputus, reconnect...");
         setTimeout(() => joinVC(guild, channelId), 5000);
       }
     });
 
     await entersState(connection, VoiceConnectionStatus.Ready, 5000);
+    console.log(`✅ BERHASIL MASUK VC: ${channel.id}`);
 
-  } catch {
+  } catch (err) {
+    console.log("❌ Gagal join VC:", err.message);
     setTimeout(() => joinVC(guild, channelId), 5000);
   }
 }
 
 // =======================
-// 🚀 READY
+// 🚀 READY (AUTO JOIN)
 // =======================
 client.once("ready", async () => {
   console.log(`🔥 Login sebagai ${client.user.tag}`);
@@ -106,7 +113,7 @@ client.once("ready", async () => {
 });
 
 // =======================
-// 🔁 AUTO CHECK
+// 🔁 AUTO CHECK (ANTI KELUAR)
 // =======================
 setInterval(() => {
   const data = loadVoice();
@@ -118,6 +125,7 @@ setInterval(() => {
       const guild = client.guilds.cache.get(guildId);
       if (!guild) continue;
 
+      console.log("⚠️ Bot keluar VC, rejoin...");
       joinVC(guild, data[guildId]);
     }
   }
@@ -138,6 +146,7 @@ client.on("messageCreate", async (message) => {
     .setFooter({ text: "BOT BY AGUSS🔥" })
     .setTimestamp();
 
+  // HELP
   if (cmd === "help") {
     embed.setTitle("📌 COMMAND LIST").setDescription(`
 🔊 **Voice**
@@ -155,9 +164,11 @@ client.on("messageCreate", async (message) => {
 \`!clear\`
 \`!timeout\`
     `);
+
     return message.reply({ embeds: [embed] });
   }
 
+  // JOIN
   if (cmd === "join") {
     if (!message.member.voice.channel) {
       embed.setDescription("❌ Masuk VC dulu!");
@@ -176,6 +187,7 @@ client.on("messageCreate", async (message) => {
     return message.reply({ embeds: [embed] });
   }
 
+  // LEAVE
   if (cmd === "leave") {
     const data = loadVoice();
     delete data[message.guild.id];
@@ -188,11 +200,13 @@ client.on("messageCreate", async (message) => {
     return message.reply({ embeds: [embed] });
   }
 
+  // PING
   if (cmd === "ping") {
     embed.setDescription(`🏓 Pong! ${client.ws.ping}ms`);
     return message.reply({ embeds: [embed] });
   }
 
+  // SAY
   if (cmd === "say") {
     const text = args.join(" ");
     if (!text) {
@@ -203,6 +217,7 @@ client.on("messageCreate", async (message) => {
     message.channel.send({ embeds: [embed.setDescription(text)] });
   }
 
+  // AVATAR
   if (cmd === "avatar") {
     const user = message.mentions.users.first() || message.author;
 
@@ -213,6 +228,7 @@ client.on("messageCreate", async (message) => {
     return message.reply({ embeds: [embed] });
   }
 
+  // KICK
   if (cmd === "kick") {
     if (!message.member.permissions.has(PermissionsBitField.Flags.KickMembers)) {
       embed.setDescription("❌ Ga punya izin!");
@@ -230,6 +246,7 @@ client.on("messageCreate", async (message) => {
     message.channel.send({ embeds: [embed] });
   }
 
+  // BAN
   if (cmd === "ban") {
     if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
       embed.setDescription("❌ Ga punya izin!");
@@ -247,6 +264,7 @@ client.on("messageCreate", async (message) => {
     message.channel.send({ embeds: [embed] });
   }
 
+  // CLEAR
   if (cmd === "clear") {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
       embed.setDescription("❌ Ga punya izin!");
@@ -266,6 +284,7 @@ client.on("messageCreate", async (message) => {
       .then(m => setTimeout(() => m.delete(), 3000));
   }
 
+  // TIMEOUT
   if (cmd === "timeout") {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
       embed.setDescription("❌ Ga punya izin!");
@@ -285,134 +304,6 @@ client.on("messageCreate", async (message) => {
     embed.setDescription(`⏳ ${user.user.tag} di mute ${time} menit`);
     message.channel.send({ embeds: [embed] });
   }
-});
-
-// =======================
-// 🔥 ADVANCED AUDIT LOG
-// =======================
-
-function logEmbed(title, desc, color, user) {
-  return new EmbedBuilder()
-    .setColor(color)
-    .setTitle(title)
-    .setDescription(desc)
-    .setThumbnail(user?.displayAvatarURL?.({ dynamic: true }))
-    .setFooter({ text: "BETLEHEM SYSTEM" })
-    .setTimestamp();
-}
-
-function getLog(guild) {
-  return guild.channels.cache.get(LOG_CHANNEL_ID);
-}
-
-client.on("guildMemberAdd", (m) => {
-  const ch = getLog(m.guild); if (!ch) return;
-  ch.send({ embeds: [logEmbed("🟢 JOIN",
-    `👮 Self\n🎯 ${m.user.tag}\n📌 Join`,
-    "Green", m.user)] });
-});
-
-client.on("guildMemberRemove", async (m) => {
-  const ch = getLog(m.guild); if (!ch) return;
-
-  let executor = "Self";
-  let action = "Leave";
-
-  try {
-    const logs = await m.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberKick });
-    const log = logs.entries.first();
-    if (log && log.target.id === m.id) {
-      executor = log.executor.tag;
-      action = "Kick";
-    }
-  } catch {}
-
-  ch.send({ embeds: [logEmbed("🔴 LEAVE",
-    `👮 ${executor}\n🎯 ${m.user.tag}\n📌 ${action}`,
-    "Red", m.user)] });
-});
-
-client.on("messageDelete", async (m) => {
-  if (!m.guild) return;
-  const ch = getLog(m.guild); if (!ch) return;
-
-  let executor = m.author?.tag || "Unknown";
-
-  try {
-    const logs = await m.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MessageDelete });
-    const log = logs.entries.first();
-    if (log && log.target.id === m.author?.id) executor = log.executor.tag;
-  } catch {}
-
-  ch.send({ embeds: [logEmbed("🗑 DELETE",
-    `👮 ${executor}\n🎯 ${m.author?.tag}\n💬 ${m.content || "-"}`,
-    "DarkRed", m.author)] });
-});
-
-client.on("voiceStateUpdate", async (o, n) => {
-  const ch = getLog(n.guild); if (!ch) return;
-
-  let action, executor = "Self";
-
-  if (!o.channel && n.channel) action = `Join ${n.channel}`;
-  else if (o.channel && !n.channel) action = `Leave ${o.channel}`;
-  else if (o.channelId !== n.channelId) {
-    action = `Move ${o.channel} ➜ ${n.channel}`;
-    try {
-      const logs = await n.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberMove });
-      const log = logs.entries.first();
-      if (log && log.target.id === n.id) executor = log.executor.tag;
-    } catch {}
-  } else return;
-
-  ch.send({ embeds: [logEmbed("🔊 VOICE",
-    `👮 ${executor}\n🎯 ${n.member.user.tag}\n📌 ${action}`,
-    "Blue", n.member.user)] });
-});
-
-client.on("guildMemberUpdate", async (o, n) => {
-  const ch = getLog(n.guild); if (!ch) return;
-
-  const add = n.roles.cache.filter(r => !o.roles.cache.has(r.id));
-  const rem = o.roles.cache.filter(r => !n.roles.cache.has(r.id));
-
-  if (!add.size && !rem.size) return;
-
-  let executor = "Unknown";
-
-  try {
-    const logs = await n.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberRoleUpdate });
-    const log = logs.entries.first();
-    if (log && log.target.id === n.id) executor = log.executor.tag;
-  } catch {}
-
-  ch.send({ embeds: [logEmbed("🎭 ROLE",
-    `👮 ${executor}\n🎯 ${n.user.tag}\n+ ${add.map(r => r.name).join(", ") || "-"}\n- ${rem.map(r => r.name).join(", ") || "-"}`,
-    "Purple", n.user)] });
-});
-
-client.on("guildBanAdd", async (b) => {
-  const ch = getLog(b.guild); if (!ch) return;
-
-  let executor = "Unknown";
-
-  try {
-    const logs = await b.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberBanAdd });
-    const log = logs.entries.first();
-    if (log) executor = log.executor.tag;
-  } catch {}
-
-  ch.send({ embeds: [logEmbed("🔨 BAN",
-    `👮 ${executor}\n🎯 ${b.user.tag}`,
-    "Red", b.user)] });
-});
-
-client.on("inviteCreate", (i) => {
-  const ch = getLog(i.guild); if (!ch) return;
-
-  ch.send({ embeds: [logEmbed("🔗 INVITE",
-    `👮 ${i.inviter.tag}\n📍 ${i.channel}\nCode: ${i.code}`,
-    "Aqua", i.inviter)] });
 });
 
 // =======================
