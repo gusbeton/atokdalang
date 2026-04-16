@@ -4,7 +4,8 @@ const {
   Client,
   GatewayIntentBits,
   PermissionsBitField,
-  EmbedBuilder
+  EmbedBuilder,
+  AuditLogEvent
 } = require("discord.js");
 
 const {
@@ -22,6 +23,7 @@ const path = require("path");
 // =======================
 const prefix = "!";
 const color = 0x2b2d31;
+const LOG_CHANNEL_ID = "ISI_CHANNEL_LOG_LU";
 
 // =======================
 // 📁 FILE DATABASE VC
@@ -48,25 +50,22 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildModeration
   ]
 });
 
 // =======================
-// 🔊 JOIN VC (FINAL FIX)
+// 🔊 JOIN VC
 // =======================
 async function joinVC(guild, channelId) {
   try {
-    const channel = await guild.channels.fetch(channelId); // 🔥 FIX CACHE
+    const channel = await guild.channels.fetch(channelId);
+    if (!channel) return;
 
-    if (!channel) return console.log("❌ Channel tidak ditemukan");
-
-    // 🔒 Anti double connect
     const existing = getVoiceConnection(guild.id);
-    if (existing) {
-      console.log("⚠️ Sudah connect ke VC");
-      return;
-    }
+    if (existing) return;
 
     const connection = joinVoiceChannel({
       channelId: channel.id,
@@ -75,30 +74,21 @@ async function joinVC(guild, channelId) {
       selfDeaf: false
     });
 
-    console.log(`🔄 Mencoba join VC: ${channel.id}`);
-
-    // 🔁 Monitor state
     connection.on("stateChange", (oldState, newState) => {
-      console.log(`STATE: ${oldState.status} -> ${newState.status}`);
-
       if (newState.status === VoiceConnectionStatus.Disconnected) {
-        console.log("⚠️ Terputus, reconnect...");
         setTimeout(() => joinVC(guild, channelId), 5000);
       }
     });
 
-    // ✅ VALIDASI MASUK
     await entersState(connection, VoiceConnectionStatus.Ready, 5000);
-    console.log(`✅ BERHASIL MASUK VC: ${channel.id}`);
 
-  } catch (err) {
-    console.log("❌ Gagal join VC:", err.message);
+  } catch {
     setTimeout(() => joinVC(guild, channelId), 5000);
   }
 }
 
 // =======================
-// 🚀 READY (AUTO JOIN)
+// 🚀 READY
 // =======================
 client.once("ready", async () => {
   console.log(`🔥 Login sebagai ${client.user.tag}`);
@@ -116,7 +106,7 @@ client.once("ready", async () => {
 });
 
 // =======================
-// 🔁 AUTO CHECK (ANTI KELUAR)
+// 🔁 AUTO CHECK
 // =======================
 setInterval(() => {
   const data = loadVoice();
@@ -128,7 +118,6 @@ setInterval(() => {
       const guild = client.guilds.cache.get(guildId);
       if (!guild) continue;
 
-      console.log("⚠️ Bot keluar VC, rejoin...");
       joinVC(guild, data[guildId]);
     }
   }
@@ -149,7 +138,6 @@ client.on("messageCreate", async (message) => {
     .setFooter({ text: "BOT BY AGUSS🔥" })
     .setTimestamp();
 
-  // HELP
   if (cmd === "help") {
     embed.setTitle("📌 COMMAND LIST").setDescription(`
 🔊 **Voice**
@@ -167,11 +155,9 @@ client.on("messageCreate", async (message) => {
 \`!clear\`
 \`!timeout\`
     `);
-
     return message.reply({ embeds: [embed] });
   }
 
-  // JOIN
   if (cmd === "join") {
     if (!message.member.voice.channel) {
       embed.setDescription("❌ Masuk VC dulu!");
@@ -190,7 +176,6 @@ client.on("messageCreate", async (message) => {
     return message.reply({ embeds: [embed] });
   }
 
-  // LEAVE
   if (cmd === "leave") {
     const data = loadVoice();
     delete data[message.guild.id];
@@ -203,13 +188,11 @@ client.on("messageCreate", async (message) => {
     return message.reply({ embeds: [embed] });
   }
 
-  // PING
   if (cmd === "ping") {
     embed.setDescription(`🏓 Pong! ${client.ws.ping}ms`);
     return message.reply({ embeds: [embed] });
   }
 
-  // SAY
   if (cmd === "say") {
     const text = args.join(" ");
     if (!text) {
@@ -220,7 +203,6 @@ client.on("messageCreate", async (message) => {
     message.channel.send({ embeds: [embed.setDescription(text)] });
   }
 
-  // AVATAR
   if (cmd === "avatar") {
     const user = message.mentions.users.first() || message.author;
 
@@ -231,7 +213,6 @@ client.on("messageCreate", async (message) => {
     return message.reply({ embeds: [embed] });
   }
 
-  // KICK
   if (cmd === "kick") {
     if (!message.member.permissions.has(PermissionsBitField.Flags.KickMembers)) {
       embed.setDescription("❌ Ga punya izin!");
@@ -249,7 +230,6 @@ client.on("messageCreate", async (message) => {
     message.channel.send({ embeds: [embed] });
   }
 
-  // BAN
   if (cmd === "ban") {
     if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
       embed.setDescription("❌ Ga punya izin!");
@@ -267,7 +247,6 @@ client.on("messageCreate", async (message) => {
     message.channel.send({ embeds: [embed] });
   }
 
-  // CLEAR
   if (cmd === "clear") {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
       embed.setDescription("❌ Ga punya izin!");
@@ -287,7 +266,6 @@ client.on("messageCreate", async (message) => {
       .then(m => setTimeout(() => m.delete(), 3000));
   }
 
-  // TIMEOUT
   if (cmd === "timeout") {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
       embed.setDescription("❌ Ga punya izin!");
@@ -307,6 +285,113 @@ client.on("messageCreate", async (message) => {
     embed.setDescription(`⏳ ${user.user.tag} di mute ${time} menit`);
     message.channel.send({ embeds: [embed] });
   }
+});
+
+// =======================
+// 📊 AUDIT LOG SYSTEM
+// =======================
+function logEmbed(title, desc, color, user) {
+  return new EmbedBuilder()
+    .setColor(color)
+    .setTitle(title)
+    .setDescription(desc)
+    .setThumbnail(user?.displayAvatarURL?.({ dynamic: true }))
+    .setFooter({ text: "BETLEHEM SYSTEM" })
+    .setTimestamp();
+}
+
+function getLog(guild) {
+  return guild.channels.cache.get(LOG_CHANNEL_ID);
+}
+
+client.on("guildMemberAdd", m => {
+  const ch = getLog(m.guild); if (!ch) return;
+  ch.send({ embeds: [logEmbed("🟢 JOIN", `${m.user.tag} masuk server`, "Green", m.user)] });
+});
+
+client.on("guildMemberRemove", async m => {
+  const ch = getLog(m.guild); if (!ch) return;
+
+  let text = "keluar server";
+
+  try {
+    const logs = await m.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberKick });
+    const log = logs.entries.first();
+    if (log && log.target.id === m.id) text = `di kick oleh ${log.executor.tag}`;
+  } catch {}
+
+  ch.send({ embeds: [logEmbed("🔴 LEAVE", `${m.user.tag} ${text}`, "Red", m.user)] });
+});
+
+client.on("messageDelete", m => {
+  if (!m.guild || m.author?.bot) return;
+  const ch = getLog(m.guild); if (!ch) return;
+
+  ch.send({ embeds: [logEmbed("🗑 DELETE", `${m.author.tag}\n${m.content || "-"}`, "DarkRed", m.author)] });
+});
+
+client.on("messageUpdate", (o, n) => {
+  if (!o.guild || o.author?.bot) return;
+  if (o.content === n.content) return;
+
+  const ch = getLog(o.guild); if (!ch) return;
+
+  ch.send({
+    embeds: [logEmbed("✏️ EDIT",
+      `User: ${o.author.tag}\nBefore: ${o.content || "-"}\nAfter: ${n.content || "-"}`,
+      "Yellow", o.author)]
+  });
+});
+
+client.on("voiceStateUpdate", (o, n) => {
+  const ch = getLog(n.guild); if (!ch) return;
+
+  let txt;
+  if (!o.channel && n.channel) txt = `join ${n.channel}`;
+  else if (o.channel && !n.channel) txt = `leave ${o.channel}`;
+  else if (o.channelId !== n.channelId) txt = `move ${o.channel} ➜ ${n.channel}`;
+  else return;
+
+  ch.send({ embeds: [logEmbed("🔊 VOICE", `${n.member.user.tag} ${txt}`, "Blue", n.member.user)] });
+});
+
+client.on("guildMemberUpdate", (o, n) => {
+  const ch = getLog(n.guild); if (!ch) return;
+
+  const add = n.roles.cache.filter(r => !o.roles.cache.has(r.id));
+  const rem = o.roles.cache.filter(r => !n.roles.cache.has(r.id));
+
+  if (!add.size && !rem.size) return;
+
+  ch.send({
+    embeds: [logEmbed("🎭 ROLE",
+      `${n.user.tag}\n+ ${add.map(r => r.name).join(", ") || "-"}\n- ${rem.map(r => r.name).join(", ") || "-"}`,
+      "Purple", n.user)]
+  });
+});
+
+client.on("guildBanAdd", async b => {
+  const ch = getLog(b.guild); if (!ch) return;
+
+  let exec = "Unknown";
+
+  try {
+    const logs = await b.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberBanAdd });
+    const log = logs.entries.first();
+    if (log) exec = log.executor.tag;
+  } catch {}
+
+  ch.send({ embeds: [logEmbed("🔨 BAN", `${b.user.tag} oleh ${exec}`, "Red", b.user)] });
+});
+
+client.on("inviteCreate", i => {
+  const ch = getLog(i.guild); if (!ch) return;
+
+  ch.send({
+    embeds: [logEmbed("🔗 INVITE",
+      `${i.inviter.tag}\n${i.channel}\nhttps://discord.gg/${i.code}`,
+      "Aqua", i.inviter)]
+  });
 });
 
 // =======================
